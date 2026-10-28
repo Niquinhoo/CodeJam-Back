@@ -3,6 +3,7 @@ import { healthRoutes } from "./routes/healthRoutes.js";
 
 const app = express();
 const allowedOrigins = new Set([
+  "https://codejam.citax.com.ar",
   "https://codejam-front.nicotrib699.workers.dev",
   "http://localhost:5173",
 ]);
