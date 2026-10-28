@@ -16,6 +16,7 @@ jobs:
   deploy:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    environment: CLOUDFLARE_API_TOKEN
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
