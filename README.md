@@ -11,6 +11,10 @@ npm run dev
 
 Local development serves the API at `http://localhost:8787`. The D1 binding uses the local simulator. `npm run typecheck` generates Cloudflare binding types, `npm run self-check` checks the health model with Node's built-in assertions, and `npm run deploy` publishes the Worker.
 
+## Automatic deploys
+
+Every push to `main` deploys the Worker; you can also run **Deploy Worker** manually from the repository's Actions tab. Add a repository Actions secret named `CLOUDFLARE_API_TOKEN` containing a Cloudflare API token with Workers Scripts Edit permission, scoped to the account in `cloudflare.config.ts`. D1 Read is not needed to deploy a Worker with a D1 binding. The workflow runs `npm ci`, `npm run typecheck`, `npm run self-check`, and `npm run build` before deploying that build with `npm run deploy -- --prebuilt`.
+
 ## Structure
 
 - `routes/` maps API paths.
