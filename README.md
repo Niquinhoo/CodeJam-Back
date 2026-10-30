@@ -21,3 +21,26 @@ Every push to `main` deploys the Worker; you can also run **Deploy Worker** manu
 - `controllers/` owns HTTP status codes and JSON responses.
 - `models/` owns database access.
 - React in `CODEJAMFRONT` is the view layer; this API does not render HTML.
+
+## Solver QuickDrop
+
+El backend también contiene el optimizador del plan. Para correrlo sobre un dataset, usá:
+
+```sh
+npm run resolver -- <directorio_dataset> --iteraciones 60000 --semilla 2026
+```
+
+Para comparar una carpeta con muchos datasets y ver costo, pedidos fallidos y tiempo por caso:
+
+```sh
+npm run evaluar-datasets -- <raiz_datasets> --iteraciones 3000 --semilla 2026
+```
+
+El generador de variantes está en el repositorio `quickdrop-sim`:
+
+```sh
+python <quickdrop-sim>/scripts/generar_datasets.py --entrada <quickdrop-sim>/datos --salida <carpeta_generados> --semilla 2026
+```
+
+`npm test` corre las pruebas del optimizador; `npm run self-check` también prueba el solver con
+un dataset de 40 pedidos.

@@ -88,6 +88,7 @@ interface CorridaK {
   k: number;
   agrupamiento: Agrupamiento;
   agrupamientosProbados: number;
+  iniciosRefinados: number;
   costoPorMetodo: Record<MetodoAgrupamiento, number>;
   inicial: Solucion;
   local: { sol: Solucion; movimientos: ConteoMovimientos };
@@ -96,6 +97,13 @@ interface CorridaK {
   costoFinal: number;
 }
 
+interface CandidatoInicial {
+  agrupamiento: Agrupamiento;
+  sol: Solucion;
+  costo: number;
+}
+
+const MAX_INICIOS_REFINADOS = 3;
 const ahora = () => performance.now();
 
 export function normalizarOpciones(o: Partial<OpcionesResolver> = {}): OpcionesResolver {
@@ -174,21 +182,57 @@ function resolverConK(inst: Instancia, k: number, opciones: OpcionesResolver, az
 
   t = ahora();
   const costoPorMetodo: Record<MetodoAgrupamiento, number> = { kmeans: Infinity, barrido: Infinity };
-  let mejor: { agrupamiento: Agrupamiento; sol: Solucion; costo: number } | null = null;
+  const candidatos: CandidatoInicial[] = [];
   for (const agrupamiento of agrupamientos) {
     const sol = construirSolucion(inst, agrupamiento);
     const costo = costoSolucion(inst, sol);
     costoPorMetodo[agrupamiento.metodo] = Math.min(costoPorMetodo[agrupamiento.metodo], costo);
-    if (!mejor || costo < mejor.costo) mejor = { agrupamiento, sol, costo };
+    candidatos.push({ agrupamiento, sol, costo });
   }
   ms.ruta += ahora() - t;
 
-  t = ahora();
-  const local = busquedaLocal(inst, mejor!.sol);
-  ms.local += ahora() - t;
+  const candidatosOrdenados = [...candidatos].sort((a, b) => a.costo - b.costo);
+  const inicios: CandidatoInicial[] = [];
+  const firmas = new Set<string>();
+  const agregarInicio = (candidato: CandidatoInicial | undefined) => {
+    if (!candidato) return;
+    const firma = candidato.agrupamiento.grupos
+      .map((grupo) => [...grupo].sort((a, b) => a - b).join(","))
+      .sort()
+      .join("|");
+    if (firmas.has(firma)) return;
+    firmas.add(firma);
+    inicios.push(candidato);
+  };
+
+  // Reservamos lugar para el mejor arranque de cada método para no depender de uno solo.
+  agregarInicio(candidatosOrdenados[0]);
+  agregarInicio(candidatosOrdenados.find((c) => c.agrupamiento.metodo === "kmeans"));
+  agregarInicio(candidatosOrdenados.find((c) => c.agrupamiento.metodo === "barrido"));
+  for (const candidato of candidatosOrdenados) {
+    if (inicios.length >= MAX_INICIOS_REFINADOS) break;
+    agregarInicio(candidato);
+  }
 
   t = ahora();
-  const recocido = recocidoSimulado(inst, local.sol, azar, opciones.iteraciones);
+  let mejorRefinado: { candidato: CandidatoInicial; local: ReturnType<typeof busquedaLocal>; costo: number } | null = null;
+  let localBase: ReturnType<typeof busquedaLocal> | null = null;
+  for (const candidato of inicios) {
+    const local = busquedaLocal(inst, candidato.sol);
+    const costo = costoSolucion(inst, local.sol);
+    if (candidato === candidatosOrdenados[0]) localBase = local;
+    if (!mejorRefinado || costo < mejorRefinado.costo) mejorRefinado = { candidato, local, costo };
+  }
+  ms.local += ahora() - t;
+  const elegido = mejorRefinado!;
+  const base = localBase!;
+
+  t = ahora();
+  let recocido = recocidoSimulado(inst, base.sol, azar, opciones.iteraciones);
+  if (elegido.costo < costoSolucion(inst, base.sol) - 1e-9) {
+    const alternativo = recocidoSimulado(inst, elegido.local.sol, azar, opciones.iteraciones);
+    if (costoSolucion(inst, alternativo.sol) < costoSolucion(inst, recocido.sol) - 1e-9) recocido = alternativo;
+  }
   ms.recocido += ahora() - t;
 
   t = ahora();
@@ -197,11 +241,12 @@ function resolverConK(inst: Instancia, k: number, opciones: OpcionesResolver, az
 
   return {
     k,
-    agrupamiento: mejor!.agrupamiento,
+    agrupamiento: elegido.candidato.agrupamiento,
     agrupamientosProbados: agrupamientos.length,
+    iniciosRefinados: inicios.length,
     costoPorMetodo,
-    inicial: mejor!.sol,
-    local,
+    inicial: elegido.candidato.sol,
+    local: elegido.local,
     recocido,
     pulido,
     costoFinal: costoSolucion(inst, pulido.sol),
@@ -288,11 +333,12 @@ function describirEtapas(
       numero: 4,
       clave: "busqueda-local",
       titulo: "Búsqueda local",
-      descripcion: "Probamos cambios chicos y nos quedamos con los que bajan el costo total: pasar pedidos entre vehículos balancea las rutas y corrige lo que el agrupamiento no veía.",
+      descripcion: `Probamos cambios chicos sobre ${c.iniciosRefinados} arranques distintos y nos quedamos con los que bajan el costo total: pasar pedidos entre vehículos balancea las rutas y corrige lo que el agrupamiento no veía.`,
       instantanea: instantanea(inst, c.local.sol),
       detalles: {
         Costo: redondear(costo(c.local.sol)),
         "Mejora vs. ruta inicial": redondear(costo(c.inicial) - costo(c.local.sol)),
+        "Inicios refinados": c.iniciosRefinados,
         "2-opt": mov.dosOpt,
         "Or-opt": mov.orOpt,
         "Pedidos reubicados": mov.reubicar,
