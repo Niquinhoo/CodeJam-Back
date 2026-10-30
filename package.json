@@ -11,6 +11,7 @@
     "build": "cf build",
     "typecheck": "cf workers types && tsc --noEmit",
     "self-check": "node --experimental-strip-types scripts/self-check.mjs",
+    "resolver": "node --experimental-strip-types scripts/resolver.mjs",
     "deploy": "cf deploy"
   },
   "dependencies": {
