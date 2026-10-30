@@ -34,7 +34,9 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run self-check
+      - run: npm test
       - run: npm run build
+      - run: npm run test:push-runtime
       - name: Deploy Worker
         run: npm run deploy -- --prebuilt
         env:

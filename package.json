@@ -12,17 +12,24 @@
     "typecheck": "cf workers types && tsc --noEmit",
     "self-check": "node --experimental-strip-types scripts/self-check.mjs",
     "test": "node --experimental-strip-types --test",
+    "push:setup": "node scripts/setup-push.mjs",
+    "db:migrate:local": "cf d1 migrations apply e2f4df7c-b346-456f-be62-ba09fff1f0fd --local --persist-to .cloudflare/state",
+    "test:integration": "node scripts/check-async-local.mjs",
+    "test:push-runtime": "node scripts/check-push-runtime.mjs",
     "resolver": "node --experimental-strip-types scripts/resolver.mjs",
     "evaluar-datasets": "node --experimental-strip-types scripts/evaluar-datasets.mjs",
     "deploy": "cf deploy"
   },
   "dependencies": {
-    "express": "^5.1.0"
+    "express": "^5.1.0",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^2.0.0-beta.v.6",
     "@types/express": "^5.0.3",
+    "@types/web-push": "^3.6.4",
     "cf": "1.0.0-beta.24",
+    "miniflare": "^5.20261023.1-beta",
     "typescript": "7.0.2",
     "vite": "^8.3.5"
   }
