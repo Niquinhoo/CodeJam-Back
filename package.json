@@ -9,6 +9,8 @@
   "scripts": {
     "dev": "cf dev",
     "build": "cf build",
+    "build:staging": "cf build --mode staging",
+    "deploy:staging": "cf deploy --prebuilt --mode staging",
     "typecheck": "cf workers types && tsc --noEmit",
     "self-check": "node --experimental-strip-types scripts/self-check.mjs",
     "test": "node --experimental-strip-types --test",

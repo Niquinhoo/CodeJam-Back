@@ -47,6 +47,8 @@ un dataset de 40 pedidos.
 
 ## Rutas asíncronas y push
 
+El entorno de prueba `codejam-back-push-test` utiliza la base D1 `quickdrop-push-test`, el Workflow `quickdrop-rutas-test` y sus propias claves VAPID. La migración inicial ya está aplicada a esa base. Para actualizarlo: `npm run build:staging` y `npm run deploy:staging`. Los secretos existentes se conservan; el archivo local `.vapid.staging.json` está ignorado por Git y no debe compartirse.
+
 El front envía el dataset con `PUT /api/trabajos/:id`. La API valida y persiste el trabajo antes de despacharlo a Cloudflare Workflows y responder 202. El workflow guarda el informe en D1 y envía el push en un paso separado con reintentos. Los reintentos de notificación no recalculan rutas. `GET /api/trabajos/:id` consulta estado; `GET /api/trabajos/:id/resultado` recupera el informe. El endpoint anterior `/api/resolver` se mantiene por compatibilidad.
 
 Cada instalación genera un Bearer aleatorio de 256 bits; el backend almacena su hash y exige el token para acceder a sus trabajos y suscripción. El aviso contiene solo el identificador del trabajo. Los trabajos vencen a los 7 días; un cron elimina datos vencidos y suscripciones sin renovar durante 90 días. El push usa VAPID y cifrado Web Push, permite endpoints HTTPS de proveedores conocidos y no sigue redirecciones. Se eliminan suscripciones que devuelven 404/410; 429 y errores del proveedor se reintentan respetando `Retry-After` hasta 24 horas. La entrega es al menos una vez: el topic y el tag reducen duplicados, que siguen siendo posibles tras un corte entre la aceptación y el registro.

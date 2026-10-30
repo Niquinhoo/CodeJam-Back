@@ -9,6 +9,7 @@ const app = express();
 const allowedOrigins = new Set([
   "https://codejam.citax.com.ar",
   "https://codejam-front.nicotrib699.workers.dev",
+  "https://codejam-front-push-test.nicotrib699.workers.dev",
   "http://localhost:5173",
   "http://localhost:5175",
 ]);
