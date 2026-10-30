@@ -14,6 +14,7 @@ export interface Costos {
   porVehiculo: number;
   porMinutoTotal: number;
   porFalla: number;
+  porMinutoPremium: number; // Evento 1: peso de la demora de cada pedido premium
 }
 
 export interface Mundo {
@@ -30,6 +31,7 @@ export interface Mundo {
 export interface Pedido extends Punto {
   id: number;
   peso: number;
+  premium: boolean; // Evento 1: cuenta cuánto tarda en recibir. Falso si el dataset no lo trae.
 }
 
 // Hoy todos los vehículos son iguales, pero el simulador oficial ya guarda la velocidad

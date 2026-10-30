@@ -60,4 +60,7 @@ console.log(`  distancia  ${metricas.distanciaTotal} cuadras = ${costo.distancia
 console.log(`  vehículos  ${metricas.vehiculosUsados} usados   = ${costo.vehiculos}`);
 console.log(`  tiempo     ${metricas.makespan} min       = ${costo.tiempo}`);
 console.log(`  fallas     ${metricas.fallidos}            = ${costo.fallas}`);
+if (metricas.premiumTotal > 0) {
+  console.log(`  premium    ${metricas.minutosPremium} min       = ${costo.premium}  (${metricas.premiumEntregados}/${metricas.premiumTotal} entregados)`);
+}
 console.log(`\nPlan escrito en ${join(salida, "plan.json")} y plan.csv (${Math.round(informe.ms)} ms)`);

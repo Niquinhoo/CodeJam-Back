@@ -22,6 +22,7 @@ export interface Desglose {
   vehiculos: number;
   tiempo: number;
   fallas: number;
+  premium: number;
   total: number;
 }
 
@@ -33,6 +34,9 @@ export interface Metricas {
   vehiculosUsados: number;
   makespan: number;
   horaFin: number;
+  premiumTotal: number;
+  premiumEntregados: number;
+  minutosPremium: number; // Σ minutos desde la salida hasta la entrega de cada premium
 }
 
 export interface Evaluacion {
@@ -95,6 +99,8 @@ export function simularPlan(dataset: Dataset, plan: Plan): Evaluacion {
   let entregados = 0;
   let costoVehiculos = 0;
   let usados = 0;
+  let premiumEntregados = 0;
+  let minutosPremium = 0;
 
   for (const ruta of plan.rutas) {
     const v = vehiculos.get(ruta.vehiculo)!;
@@ -126,6 +132,10 @@ export function simularPlan(dataset: Dataset, plan: Plan): Evaluacion {
       const llegada = t;
       t += mundo.tiempoServicio;
       entregados += 1;
+      if (p.premium) {
+        premiumEntregados += 1;
+        minutosPremium += llegada - mundo.horaSalida;
+      }
       visitas.push({ vehiculo: v.id, viaje, parada: p.id, x: p.x, y: p.y, cuadras: d, llegada, salida: t, estado: "ENTREGADO" });
     }
 
@@ -144,9 +154,10 @@ export function simularPlan(dataset: Dataset, plan: Plan): Evaluacion {
     vehiculos: costoVehiculos,
     tiempo: makespan * c.porMinutoTotal,
     fallas: sinAsignar.length * c.porFalla,
+    premium: minutosPremium * (c.porMinutoPremium ?? 1),
     total: 0,
   };
-  costo.total = costo.distancia + costo.vehiculos + costo.tiempo + costo.fallas;
+  costo.total = costo.distancia + costo.vehiculos + costo.tiempo + costo.fallas + costo.premium;
 
   return {
     valido: true,
@@ -161,6 +172,9 @@ export function simularPlan(dataset: Dataset, plan: Plan): Evaluacion {
       vehiculosUsados: usados,
       makespan,
       horaFin: finUltimo,
+      premiumTotal: dataset.pedidos.filter((p) => p.premium).length,
+      premiumEntregados,
+      minutosPremium,
     },
     costo,
   };

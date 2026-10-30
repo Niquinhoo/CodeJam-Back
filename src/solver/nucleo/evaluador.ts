@@ -1,7 +1,7 @@
 // Evaluación incremental: al probar un cambio solo se recalculan las rutas que tocó, y el
 // resto se toma del estado guardado. Lo usan la búsqueda local y el recocido.
-import { costoSolucion, distanciaRuta, tiempoRuta } from "./instancia.ts";
-import type { Instancia, Solucion } from "./instancia.ts";
+import { costoPropioRuta, costoSolucion, medirRuta } from "./instancia.ts";
+import type { Instancia, MedidaRuta, Solucion } from "./instancia.ts";
 
 /** Índice especial que representa la lista de pedidos sin asignar (los que fallan). */
 export const SIN_ASIGNAR = -1;
@@ -13,20 +13,17 @@ export interface Cambio {
 
 export interface Estado {
   sol: Solucion;
-  cuadras: number[];
-  tiempo: number[];
+  medidas: MedidaRuta[]; // cuadras, tiempo y minutos premium de cada ruta
   costo: number;
 }
 
 export function crearEstado(inst: Instancia, sol: Solucion): Estado {
-  const cuadras = sol.rutas.map((r) => distanciaRuta(inst, r));
-  const tiempo = sol.rutas.map((r, s) => tiempoRuta(inst, s, r, cuadras[s]));
-  return { sol, cuadras, tiempo, costo: costoSolucion(inst, sol) };
+  return { sol, medidas: sol.rutas.map((r, s) => medirRuta(inst, s, r)), costo: costoSolucion(inst, sol) };
 }
 
 /** Costo que tendría la solución si se aplicaran los cambios (no modifica el estado). */
 export function costoSi(inst: Instancia, est: Estado, cambios: Cambio[]): number {
-  let cuadras = 0;
+  let propio = 0;
   let fijo = 0;
   let makespan = 0;
   let fallas = est.sol.sinAsignar.length;
@@ -34,20 +31,14 @@ export function costoSi(inst: Instancia, est: Estado, cambios: Cambio[]): number
 
   for (let s = 0; s < est.sol.rutas.length; s++) {
     const cambio = cambios.find((c) => c.ruta === s);
-    let largo = est.sol.rutas[s].length;
-    let dr = est.cuadras[s];
-    let tr = est.tiempo[s];
-    if (cambio) {
-      largo = cambio.nodos.length;
-      dr = distanciaRuta(inst, cambio.nodos);
-      tr = tiempoRuta(inst, s, cambio.nodos, dr);
-    }
+    const largo = cambio ? cambio.nodos.length : est.sol.rutas[s].length;
     if (largo === 0) continue;
-    cuadras += dr;
+    const m = cambio ? medirRuta(inst, s, cambio.nodos) : est.medidas[s];
+    propio += costoPropioRuta(inst, m);
     fijo += inst.costoFijo[s];
-    if (tr > makespan) makespan = tr;
+    if (m.tiempo > makespan) makespan = m.tiempo;
   }
-  return inst.porCuadra * cuadras + fijo + inst.porMinuto * makespan + inst.porFalla * fallas;
+  return propio + fijo + inst.porMinuto * makespan + inst.porFalla * fallas;
 }
 
 export function aplicar(inst: Instancia, est: Estado, cambios: Cambio[], costoNuevo: number): void {
@@ -57,8 +48,7 @@ export function aplicar(inst: Instancia, est: Estado, cambios: Cambio[], costoNu
       continue;
     }
     est.sol.rutas[c.ruta] = c.nodos;
-    est.cuadras[c.ruta] = distanciaRuta(inst, c.nodos);
-    est.tiempo[c.ruta] = tiempoRuta(inst, c.ruta, c.nodos, est.cuadras[c.ruta]);
+    est.medidas[c.ruta] = medirRuta(inst, c.ruta, c.nodos);
   }
   est.costo = costoNuevo;
 }
@@ -74,6 +64,25 @@ export function mejorInsercion(inst: Instancia, ruta: number[], nodo: number): n
     const delta = inst.dist[antes * n1 + nodo] + inst.dist[nodo * n1 + despues] - inst.dist[antes * n1 + despues];
     if (delta < mejorDelta) {
       mejorDelta = delta;
+      mejor = i;
+    }
+  }
+  return mejor;
+}
+
+/**
+ * Posición de inserción que menos sube el costo propio de la ruta (distancia + demora premium).
+ * Sin premium coincide con mejorInsercion; con premium puede preferir adelantar un pedido.
+ */
+export function mejorInsercionCosto(inst: Instancia, vehiculo: number, ruta: number[], nodo: number): number {
+  if (!inst.hayPremium) return mejorInsercion(inst, ruta, nodo);
+  let mejor = 0;
+  let mejorCosto = Infinity;
+  for (let i = 0; i <= ruta.length; i++) {
+    const m = medirRuta(inst, vehiculo, insertar(ruta, i, [nodo]));
+    const costo = costoPropioRuta(inst, m) + inst.porMinuto * m.tiempo;
+    if (costo < mejorCosto) {
+      mejorCosto = costo;
       mejor = i;
     }
   }

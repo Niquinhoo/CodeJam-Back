@@ -34,6 +34,15 @@ function numero(v: Crudo, donde: string): number {
   return n;
 }
 
+function booleano(v: Crudo, donde: string): boolean {
+  if (typeof v === "boolean") return v;
+  if (v === 0 || v === 1) return v === 1;
+  const t = String(v).trim().toLowerCase();
+  if (["1", "true", "si", "sí", "verdadero"].includes(t)) return true;
+  if (["0", "false", "no", "falso"].includes(t)) return false;
+  throw new ErrorDatos(`${donde}: se esperaba un booleano (1/0) y vino ${JSON.stringify(v)}`);
+}
+
 function hora(v: Crudo, donde: string): number {
   if (typeof v === "number" && Number.isInteger(v)) return v;
   const m = /^\s*(\d+)\s*:\s*(\d+)\s*$/.exec(String(v));
@@ -57,6 +66,7 @@ const CAMPOS_MUNDO = [
   ["costo_por_vehiculo", "numero", 60],
   ["costo_por_minuto_total", "numero", 1],
   ["costo_por_falla", "numero", 200],
+  ["costo_por_minuto_premium", "numero", 1], // Evento 1
 ] as const;
 
 const LECTORES = { entero, numero, hora };
@@ -82,6 +92,7 @@ function mundoDesdeObjeto(d: Crudo): Mundo {
       porVehiculo: v.costo_por_vehiculo,
       porMinutoTotal: v.costo_por_minuto_total,
       porFalla: v.costo_por_falla,
+      porMinutoPremium: v.costo_por_minuto_premium,
     },
   };
   if (mundo.ancho <= 0 || mundo.alto <= 0) throw new ErrorDatos("mundo: la grilla debe tener tamaño positivo");
@@ -104,7 +115,13 @@ function pedidosDesdeFilas(filas: Crudo, mundo: Mundo): Pedido[] {
     }
     const id = entero(f.id, `pedidos, elemento ${i + 1}, id`);
     const donde = `pedido ${id}`;
-    const pedido: Pedido = { id, x: entero(f.x, `${donde}, x`), y: entero(f.y, `${donde}, y`), peso: entero(f.peso, `${donde}, peso`) };
+    const pedido: Pedido = {
+      id,
+      x: entero(f.x, `${donde}, x`),
+      y: entero(f.y, `${donde}, y`),
+      peso: entero(f.peso, `${donde}, peso`),
+      premium: vacio(f.premium) ? false : booleano(f.premium, `${donde}, premium`),
+    };
     if (vistos.has(id)) throw new ErrorDatos(`${donde}: id repetido`);
     if (!dentro(mundo, pedido.x, pedido.y)) throw new ErrorDatos(`${donde}: (${pedido.x},${pedido.y}) está fuera de la grilla`);
     if (pedido.peso < 0) throw new ErrorDatos(`${donde}: peso negativo`);

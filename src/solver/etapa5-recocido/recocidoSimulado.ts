@@ -7,7 +7,7 @@
 // durante un cálculo, y además así el resultado es reproducible.
 import { enteroAzar } from "../nucleo/azar.ts";
 import type { Azar } from "../nucleo/azar.ts";
-import { aplicar, costoSi, crearEstado, insertar, mejorInsercion, SIN_ASIGNAR } from "../nucleo/evaluador.ts";
+import { aplicar, costoSi, crearEstado, insertar, mejorInsercionCosto, SIN_ASIGNAR } from "../nucleo/evaluador.ts";
 import type { Cambio, Estado } from "../nucleo/evaluador.ts";
 import { clonar } from "../nucleo/instancia.ts";
 import type { Instancia, Solucion } from "../nucleo/instancia.ts";
@@ -57,7 +57,7 @@ function movimientoAzar(inst: Instancia, est: Estado, azar: Azar): Cambio[] | nu
     const resto = origen.filter((_, i) => i !== elegido);
     if (b === SIN_ASIGNAR) return [{ ruta: a, nodos: resto }, { ruta: b, nodos: [...sinAsignar, nodo] }];
     const destino = rutas[b];
-    const pos = azar() < 0.7 ? mejorInsercion(inst, destino, nodo) : enteroAzar(azar, destino.length + 1);
+    const pos = azar() < 0.7 ? mejorInsercionCosto(inst, b, destino, nodo) : enteroAzar(azar, destino.length + 1);
     return [{ ruta: a, nodos: resto }, { ruta: b, nodos: insertar(destino, pos, [nodo]) }];
   }
 

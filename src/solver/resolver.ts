@@ -1,8 +1,10 @@
 // ORQUESTADOR: encadena las etapas y decide cuántos vehículos usar.
 //
 //   1 Lectura ─► para cada k = 1..vehículos disponibles:
-//                  2 Agrupamiento (k-means con varias semillas + barrido con todos los cortes)
-//                  3 Ruta inicial (vecino más cercano + 2-opt) → nos quedamos con el mejor arranque
+//                  2 Agrupamiento (k-means con varias semillas + barrido con todos los cortes
+//                    + con premium: un vehículo dedicado a los premium)
+//                  3 Ruta inicial (vecino más cercano + 2-opt; con premium también "premium
+//                    primero") → nos quedamos con el mejor arranque
 //                  4 Búsqueda local
 //                  5 Recocido simulado
 //                  6 Pulido exacto
@@ -10,6 +12,9 @@
 //
 // Con "hasta k vehículos" la optimización puede dejar alguno vacío: por eso informamos
 // tanto k como los vehículos realmente usados.
+//
+// Pedidos premium (Evento 1): el costo suma la demora de cada premium entregado. Si el dataset
+// no trae premium, ese término vale 0 y el camino es exactamente el del problema base.
 import { crearAzar } from "./nucleo/azar.ts";
 import { aPlan, costoSolucion, crearInstancia, planACsv, vehiculosUsados } from "./nucleo/instancia.ts";
 import type { Instancia, Solucion } from "./nucleo/instancia.ts";
@@ -21,13 +26,15 @@ import { leerDataset } from "./etapa1-lectura/leerDataset.ts";
 import type { Archivos, ResumenLectura } from "./etapa1-lectura/leerDataset.ts";
 import { barridos } from "./etapa2-agrupamiento/barrido.ts";
 import { kmeans } from "./etapa2-agrupamiento/kmeans.ts";
+import { premiumDedicado } from "./etapa2-agrupamiento/premiumDedicado.ts";
+import { NOMBRE_METODO } from "./etapa2-agrupamiento/tipos.ts";
 import type { Agrupamiento, MetodoAgrupamiento } from "./etapa2-agrupamiento/tipos.ts";
 import { construirSolucion } from "./etapa3-ruta-inicial/rutaInicial.ts";
 import { busquedaLocal } from "./etapa4-busqueda-local/busquedaLocal.ts";
 import type { ConteoMovimientos } from "./etapa4-busqueda-local/busquedaLocal.ts";
 import { recocidoSimulado } from "./etapa5-recocido/recocidoSimulado.ts";
 import type { PuntoConvergencia, ResultadoRecocido } from "./etapa5-recocido/recocidoSimulado.ts";
-import { MAX_PEDIDOS_EXACTO, pulir } from "./etapa6-pulido/pulidoExacto.ts";
+import { MAX_PEDIDOS_EXACTO, MAX_PEDIDOS_EXACTO_PREMIUM, pulir } from "./etapa6-pulido/pulidoExacto.ts";
 import type { ResultadoPulido } from "./etapa6-pulido/pulidoExacto.ts";
 
 export interface OpcionesResolver {
@@ -62,6 +69,7 @@ export interface ResultadoPorK {
   k: number;
   costoKmeans: number;
   costoBarrido: number;
+  costoPremiumDedicado: number | null; // null si no hay premium o k = 1
   metodo: MetodoAgrupamiento;
   construccion: number;
   busquedaLocal: number;
@@ -75,6 +83,7 @@ export interface Informe {
   dataset: Dataset;
   lectura: ResumenLectura | null;
   opciones: OpcionesResolver;
+  premium: { pedidos: number; costoPorMinuto: number } | null; // null: dataset sin premium
   etapas: Etapa[];
   porK: ResultadoPorK[];
   convergencia: PuntoConvergencia[];
@@ -152,11 +161,13 @@ export function resolver(dataset: Dataset, opcionesParciales?: Partial<OpcionesR
     dataset,
     lectura,
     opciones,
+    premium: inst.hayPremium ? { pedidos: inst.premium.reduce((a, b) => a + b, 0), costoPorMinuto: inst.porMinutoPremium } : null,
     etapas: describirEtapas(inst, elegida, corridas.length, lectura, { ...ms, lectura: msLectura }),
     porK: corridas.map((c) => ({
       k: c.k,
       costoKmeans: c.costoPorMetodo.kmeans,
       costoBarrido: c.costoPorMetodo.barrido,
+      costoPremiumDedicado: Number.isFinite(c.costoPorMetodo["premium-dedicado"]) ? c.costoPorMetodo["premium-dedicado"] : null,
       metodo: c.agrupamiento.metodo,
       construccion: costoSolucion(inst, c.inicial),
       busquedaLocal: costoSolucion(inst, c.local.sol),
@@ -178,10 +189,11 @@ function resolverConK(inst: Instancia, k: number, opciones: OpcionesResolver, az
   const agrupamientos: Agrupamiento[] = [];
   for (let s = 0; s < opciones.semillasKmeans; s++) agrupamientos.push(kmeans(inst, k, azar));
   agrupamientos.push(...barridos(inst, k));
+  agrupamientos.push(...premiumDedicado(inst, k, azar, opciones.semillasKmeans)); // vacío sin premium
   ms.agrupamiento += ahora() - t;
 
   t = ahora();
-  const costoPorMetodo: Record<MetodoAgrupamiento, number> = { kmeans: Infinity, barrido: Infinity };
+  const costoPorMetodo: Record<MetodoAgrupamiento, number> = { kmeans: Infinity, barrido: Infinity, "premium-dedicado": Infinity };
   const candidatos: CandidatoInicial[] = [];
   for (const agrupamiento of agrupamientos) {
     const sol = construirSolucion(inst, agrupamiento);
@@ -209,6 +221,7 @@ function resolverConK(inst: Instancia, k: number, opciones: OpcionesResolver, az
   agregarInicio(candidatosOrdenados[0]);
   agregarInicio(candidatosOrdenados.find((c) => c.agrupamiento.metodo === "kmeans"));
   agregarInicio(candidatosOrdenados.find((c) => c.agrupamiento.metodo === "barrido"));
+  agregarInicio(candidatosOrdenados.find((c) => c.agrupamiento.metodo === "premium-dedicado")); // solo con premium
   for (const candidato of candidatosOrdenados) {
     if (inicios.length >= MAX_INICIOS_REFINADOS) break;
     agregarInicio(candidato);
@@ -278,13 +291,25 @@ function describirEtapas(
   const mov = c.local.movimientos;
   const movPulido = c.pulido.movimientos;
   const redondear = (x: number) => Math.round(x);
+  const cantidadPremium = pedidos.filter((p) => p.premium).length;
+  // Con premium, cada etapa muestra también cuántos minutos esperan en total los premium.
+  const demoraPremium = (sol: Solucion): Record<string, number> => {
+    if (!inst.hayPremium) return {};
+    const ev = simularPlan(inst.dataset, aPlan(inst, sol));
+    return { "Demora premium (min)": ev.metricas?.minutosPremium ?? 0 };
+  };
+  const metodo = (m: MetodoAgrupamiento) => NOMBRE_METODO[m];
 
   return [
     {
       numero: 1,
       clave: "lectura",
       titulo: "Lectura del dataset",
-      descripcion: `Leímos ${pedidos.length} pedidos y ${vehiculos.length} vehículos. Todo sale del archivo mundo: el depósito está en (${mundo.deposito.x}, ${mundo.deposito.y}) y los vehículos salen a las ${aHora(mundo.horaSalida)}.`,
+      descripcion:
+        `Leímos ${pedidos.length} pedidos y ${vehiculos.length} vehículos. Todo sale del archivo mundo: el depósito está en (${mundo.deposito.x}, ${mundo.deposito.y}) y los vehículos salen a las ${aHora(mundo.horaSalida)}.` +
+        (inst.hayPremium
+          ? ` Hay ${cantidadPremium} pedidos premium: cada minuto desde la salida hasta su entrega suma ${mundo.costos.porMinutoPremium} al costo.`
+          : " No hay pedidos premium, así que se resuelve el problema base."),
       instantanea: null,
       detalles: {
         Pedidos: pedidos.length,
@@ -295,6 +320,8 @@ function describirEtapas(
         "Costo por vehículo": mundo.costos.porVehiculo,
         "Costo por minuto": mundo.costos.porMinutoTotal,
         "Costo por falla": mundo.costos.porFalla,
+        "Pedidos premium": cantidadPremium,
+        ...(cantidadPremium > 0 ? { "Costo por minuto premium": mundo.costos.porMinutoPremium } : {}),
         ...(lectura ? { Formatos: `mundo ${lectura.formatos.mundo}, pedidos ${lectura.formatos.pedidos}, vehículos ${lectura.formatos.vehiculos}` } : {}),
       },
       ms: redondear(ms.lectura),
@@ -303,7 +330,10 @@ function describirEtapas(
       numero: 2,
       clave: "agrupamiento",
       titulo: "Agrupamiento",
-      descripcion: `Para cada cantidad de vehículos (1 a ${ksProbados}) separamos los pedidos en grupos con k-means y con barrido angular. Acá se ve el agrupamiento que mejor arrancó para k = ${c.k} (${c.agrupamiento.metodo === "kmeans" ? "k-means" : "barrido"}).`,
+      descripcion:
+        `Para cada cantidad de vehículos (1 a ${ksProbados}) separamos los pedidos en grupos con k-means y con barrido angular` +
+        (inst.hayPremium ? ", y también probamos dedicar un vehículo solo a los premium" : "") +
+        `. Acá se ve el agrupamiento que mejor arrancó para k = ${c.k} (${metodo(c.agrupamiento.metodo)}).`,
       instantanea: {
         ordenada: false,
         rutas: c.agrupamiento.grupos.map((g, s) => ({ vehiculo: vehiculos[s].id, paradas: ids(g) })).filter((r) => r.paradas.length > 0),
@@ -314,9 +344,12 @@ function describirEtapas(
       },
       detalles: {
         "Agrupamientos probados (este k)": c.agrupamientosProbados,
-        "Método ganador": c.agrupamiento.metodo === "kmeans" ? "k-means" : "barrido",
+        "Método ganador": metodo(c.agrupamiento.metodo),
         "Mejor arranque con k-means": redondear(c.costoPorMetodo.kmeans),
         "Mejor arranque con barrido": redondear(c.costoPorMetodo.barrido),
+        ...(Number.isFinite(c.costoPorMetodo["premium-dedicado"])
+          ? { "Mejor arranque con vehículo dedicado a premium": redondear(c.costoPorMetodo["premium-dedicado"]) }
+          : {}),
       },
       ms: redondear(ms.agrupamiento),
     },
@@ -324,9 +357,12 @@ function describirEtapas(
       numero: 3,
       clave: "ruta-inicial",
       titulo: "Ruta inicial",
-      descripcion: "Cada grupo se ordena con vecino más cercano (ir siempre al pedido más próximo) y se corrigen los cruces con 2-opt. Es la primera solución completa con costo.",
+      descripcion:
+        "Cada grupo se ordena con vecino más cercano (ir siempre al pedido más próximo) y se corrigen los cruces con 2-opt." +
+        (inst.hayPremium ? " Con premium también probamos poner los premium al inicio de la ruta y nos quedamos con el orden más barato." : "") +
+        " Es la primera solución completa con costo.",
       instantanea: instantanea(inst, c.inicial),
-      detalles: { Costo: redondear(costo(c.inicial)) },
+      detalles: { Costo: redondear(costo(c.inicial)), ...demoraPremium(c.inicial) },
       ms: redondear(ms.ruta),
     },
     {
@@ -339,6 +375,7 @@ function describirEtapas(
         Costo: redondear(costo(c.local.sol)),
         "Mejora vs. ruta inicial": redondear(costo(c.inicial) - costo(c.local.sol)),
         "Inicios refinados": c.iniciosRefinados,
+        ...demoraPremium(c.local.sol),
         "2-opt": mov.dosOpt,
         "Or-opt": mov.orOpt,
         "Pedidos reubicados": mov.reubicar,
@@ -356,6 +393,7 @@ function describirEtapas(
       detalles: {
         Costo: redondear(costo(c.recocido.sol)),
         "Mejora vs. búsqueda local": redondear(costo(c.local.sol) - costo(c.recocido.sol)),
+        ...demoraPremium(c.recocido.sol),
         Iteraciones: c.recocido.iteraciones,
         "Cambios aceptados": c.recocido.aceptados,
         "Empeoramientos aceptados": c.recocido.empeorasAceptadas,
@@ -368,11 +406,14 @@ function describirEtapas(
       numero: 6,
       clave: "pulido",
       titulo: "Pulido exacto",
-      descripcion: `Una última búsqueda local y, para cada ruta de hasta ${MAX_PEDIDOS_EXACTO} pedidos, el orden óptimo exacto con programación dinámica (Held-Karp).`,
+      descripcion:
+        `Una última búsqueda local y, para cada ruta de hasta ${MAX_PEDIDOS_EXACTO} pedidos, el orden óptimo exacto con programación dinámica (Held-Karp).` +
+        (inst.hayPremium ? ` Las rutas con premium (hasta ${MAX_PEDIDOS_EXACTO_PREMIUM} pedidos) se ordenan con ramificación y poda, que también tiene en cuenta la demora de los premium.` : ""),
       instantanea: instantanea(inst, c.pulido.sol),
       detalles: {
         Costo: redondear(c.costoFinal),
         "Mejora vs. recocido": redondear(costo(c.recocido.sol) - c.costoFinal),
+        ...demoraPremium(c.pulido.sol),
         "Rutas resueltas de forma exacta": c.pulido.rutasExactas,
         "Rutas que mejoraron": c.pulido.rutasMejoradas,
         "Movimientos de búsqueda local": Object.values(movPulido).reduce((a, b) => a + b, 0),

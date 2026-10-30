@@ -3,12 +3,17 @@
 // seguidas, como una pizza con el depósito en el centro. A diferencia de k-means, sí tiene en
 // cuenta dónde está el depósito. Probamos todos los puntos de corte posibles.
 import type { Instancia } from "../nucleo/instancia.ts";
+import { todosLosNodos } from "./kmeans.ts";
 import type { Agrupamiento } from "./tipos.ts";
 
-export function barridos(inst: Instancia, k: number): Agrupamiento[] {
+/** Un agrupamiento por cada punto de corte, sobre los nodos indicados (por defecto, todos). */
+export function barridos(inst: Instancia, k: number, nodos = todosLosNodos(inst)): Agrupamiento[] {
   const { deposito } = inst.dataset.mundo;
-  const ordenados = inst.dataset.pedidos
-    .map((p, i) => ({ nodo: i + 1, angulo: Math.atan2(p.y - deposito.y, p.x - deposito.x), radio: Math.abs(p.x - deposito.x) + Math.abs(p.y - deposito.y) }))
+  const ordenados = nodos
+    .map((nodo) => {
+      const p = inst.dataset.pedidos[nodo - 1];
+      return { nodo, angulo: Math.atan2(p.y - deposito.y, p.x - deposito.x), radio: Math.abs(p.x - deposito.x) + Math.abs(p.y - deposito.y) };
+    })
     .sort((a, b) => a.angulo - b.angulo || a.radio - b.radio)
     .map((p) => p.nodo);
 

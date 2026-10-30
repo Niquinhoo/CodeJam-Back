@@ -9,6 +9,10 @@ import type { Instancia } from "../nucleo/instancia.ts";
 import type { Punto } from "../nucleo/modelo.ts";
 import type { Agrupamiento } from "./tipos.ts";
 
+export function todosLosNodos(inst: Instancia): number[] {
+  return Array.from({ length: inst.n }, (_, i) => i + 1); // nodo = índice de pedido + 1
+}
+
 function dist2(a: Punto, b: Punto): number {
   return (a.x - b.x) ** 2 + (a.y - b.y) ** 2;
 }
@@ -31,8 +35,9 @@ function centrosIniciales(puntos: Punto[], k: number, azar: Azar): Punto[] {
   return centros;
 }
 
-export function kmeans(inst: Instancia, k: number, azar: Azar, maxIteraciones = 100): Agrupamiento {
-  const puntos: Punto[] = inst.dataset.pedidos;
+/** Agrupa los nodos indicados (por defecto, todos los pedidos) en k grupos. */
+export function kmeans(inst: Instancia, k: number, azar: Azar, nodos = todosLosNodos(inst), maxIteraciones = 100): Agrupamiento {
+  const puntos: Punto[] = nodos.map((nodo) => inst.dataset.pedidos[nodo - 1]);
   if (puntos.length === 0) return { metodo: "kmeans", grupos: Array.from({ length: k }, () => []), centros: [] };
 
   const centros = centrosIniciales(puntos, Math.min(k, puntos.length), azar);
@@ -68,6 +73,6 @@ export function kmeans(inst: Instancia, k: number, azar: Azar, maxIteraciones = 
   }
 
   const grupos: number[][] = Array.from({ length: k }, () => []);
-  asignacion.forEach((c, i) => grupos[c].push(i + 1)); // nodo = índice de pedido + 1
+  asignacion.forEach((c, i) => grupos[c].push(nodos[i]));
   return { metodo: "kmeans", grupos, centros: centros.map((c) => ({ x: Math.round(c.x * 10) / 10, y: Math.round(c.y * 10) / 10 })) };
 }

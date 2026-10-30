@@ -8,7 +8,9 @@
 //                  una falla porque entregarlo salía más caro.
 //   · intercambiar cambia dos pedidos de vehículos distintos
 // Estos movimientos corrigen los defectos de la etapa 2: grupos desparejos y depósito ignorado.
-import { aplicar, costoSi, crearEstado, insertar, mejorInsercion, SIN_ASIGNAR } from "../nucleo/evaluador.ts";
+// Con premium (Evento 1) el costo incluye la demora de cada premium, así que los mismos
+// movimientos también adelantan premium dentro de su ruta o los pasan a un vehículo que llega antes.
+import { aplicar, costoSi, crearEstado, insertar, mejorInsercionCosto, SIN_ASIGNAR } from "../nucleo/evaluador.ts";
 import type { Cambio, Estado } from "../nucleo/evaluador.ts";
 import { clonar, distanciaRuta } from "../nucleo/instancia.ts";
 import type { Instancia, Solucion } from "../nucleo/instancia.ts";
@@ -65,7 +67,10 @@ function mejorarDentroDeRutas(inst: Instancia, est: Estado, intentar: Intentar):
         for (let p = 0; p <= resto.length; p++) {
           if (p === i) continue;
           const nueva = insertar(resto, p, tramo);
-          if (distanciaRuta(inst, nueva) < est.cuadras[s] && intentar([{ ruta: s, nodos: nueva }], "orOpt")) return true;
+          // Sin premium solo puede convenir si acorta la ruta; con premium, adelantar a un
+          // premium puede valer más que las cuadras extra, así que decide el costo total.
+          const candidato = inst.hayPremium || distanciaRuta(inst, nueva) < est.medidas[s].cuadras;
+          if (candidato && intentar([{ ruta: s, nodos: nueva }], "orOpt")) return true;
         }
       }
     }
@@ -91,7 +96,7 @@ function reubicar(inst: Instancia, est: Estado, intentar: Intentar): boolean {
           if (probamosVacio) continue; // todos los vehículos vacíos son equivalentes
           probamosVacio = true;
         }
-        const nuevoDestino = b === SIN_ASIGNAR ? [...destino, nodo] : insertar(destino, mejorInsercion(inst, destino, nodo), [nodo]);
+        const nuevoDestino = b === SIN_ASIGNAR ? [...destino, nodo] : insertar(destino, mejorInsercionCosto(inst, b, destino, nodo), [nodo]);
         const clave = a === SIN_ASIGNAR ? "desdeSinAsignar" : b === SIN_ASIGNAR ? "aSinAsignar" : "reubicar";
         if (intentar([{ ruta: a, nodos: resto }, { ruta: b, nodos: nuevoDestino }], clave)) return true;
       }

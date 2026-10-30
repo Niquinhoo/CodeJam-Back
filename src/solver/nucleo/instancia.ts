@@ -12,8 +12,18 @@ export interface Instancia {
   porCuadra: number;
   porMinuto: number;
   porFalla: number;
+  porMinutoPremium: number;
+  premium: Uint8Array; // premium[nodo] = 1 si el pedido es premium (el depósito, nodo 0, nunca)
+  hayPremium: boolean; // sin premium el problema es exactamente el del enunciado base
   minPorCuadra: number[]; // por vehículo, en el orden del dataset
   costoFijo: number[];
+}
+
+/** Lo que aporta una ruta al costo: sus cuadras, cuándo vuelve y la demora de sus premium. */
+export interface MedidaRuta {
+  cuadras: number;
+  tiempo: number;
+  minutosPremium: number;
 }
 
 /**
@@ -33,6 +43,12 @@ export function crearInstancia(dataset: Dataset): Instancia {
     for (let j = 0; j <= n; j++) dist[i * (n + 1) + j] = distancia(puntos[i], puntos[j]);
   }
   const c = dataset.mundo.costos;
+  // Un Dataset armado en código (no leído de archivos) puede no traer el campo del Evento 1.
+  const porMinutoPremium = c.porMinutoPremium ?? 1;
+  const premium = new Uint8Array(n + 1);
+  dataset.pedidos.forEach((p, i) => {
+    premium[i + 1] = p.premium ? 1 : 0;
+  });
   return {
     dataset,
     n,
@@ -41,6 +57,9 @@ export function crearInstancia(dataset: Dataset): Instancia {
     porCuadra: c.porCuadra,
     porMinuto: c.porMinutoTotal,
     porFalla: c.porFalla,
+    porMinutoPremium,
+    premium,
+    hayPremium: premium.includes(1) && porMinutoPremium !== 0,
     minPorCuadra: dataset.vehiculos.map((v) => v.minPorCuadra),
     costoFijo: dataset.vehiculos.map((v) => v.costoFijo),
   };
@@ -63,19 +82,49 @@ export function tiempoRuta(inst: Instancia, vehiculo: number, ruta: number[], cu
   return cuadras * inst.minPorCuadra[vehiculo] + ruta.length * inst.servicio;
 }
 
+/**
+ * Recorre la ruta como el simulador: el minuto en que llega a cada premium (contado desde la
+ * salida) se suma a minutosPremium. Llegar antes a un premium baja el costo aunque la ruta
+ * sea igual de larga: por eso con premium importa el ORDEN, no solo la distancia.
+ */
+export function medirRuta(inst: Instancia, vehiculo: number, ruta: number[]): MedidaRuta {
+  if (ruta.length === 0) return { cuadras: 0, tiempo: 0, minutosPremium: 0 };
+  const n1 = inst.n + 1;
+  const mpc = inst.minPorCuadra[vehiculo];
+  let cuadras = 0;
+  let t = 0;
+  let minutosPremium = 0;
+  let previo = 0;
+  for (const nodo of ruta) {
+    const tramo = inst.dist[previo * n1 + nodo];
+    cuadras += tramo;
+    t += tramo * mpc;
+    if (inst.premium[nodo]) minutosPremium += t;
+    t += inst.servicio;
+    previo = nodo;
+  }
+  const vuelta = inst.dist[previo * n1];
+  return { cuadras: cuadras + vuelta, tiempo: t + vuelta * mpc, minutosPremium };
+}
+
+/** Costo de los términos de una ruta que se suman (todo menos makespan y costo fijo). */
+export function costoPropioRuta(inst: Instancia, m: MedidaRuta): number {
+  return inst.porCuadra * m.cuadras + inst.porMinutoPremium * m.minutosPremium;
+}
+
 /** Mismo costo que el simulador, calculado directo sobre la solución interna. */
 export function costoSolucion(inst: Instancia, sol: Solucion): number {
-  let cuadras = 0;
+  let propio = 0;
   let fijo = 0;
   let makespan = 0;
   sol.rutas.forEach((ruta, s) => {
     if (ruta.length === 0) return;
-    const dr = distanciaRuta(inst, ruta);
-    cuadras += dr;
+    const m = medirRuta(inst, s, ruta);
+    propio += costoPropioRuta(inst, m);
     fijo += inst.costoFijo[s];
-    makespan = Math.max(makespan, tiempoRuta(inst, s, ruta, dr));
+    makespan = Math.max(makespan, m.tiempo);
   });
-  return inst.porCuadra * cuadras + fijo + inst.porMinuto * makespan + inst.porFalla * sol.sinAsignar.length;
+  return propio + fijo + inst.porMinuto * makespan + inst.porFalla * sol.sinAsignar.length;
 }
 
 export function clonar(sol: Solucion): Solucion {
